@@ -376,6 +376,170 @@ function onQualityControlOwnership(data) {
     }
 }
 
+function UE4ResponseFunction(data) {
+
+    switch (data) {
+        case "OnStartButtonPressed":
+            OnStartButtonPressed();
+            break;
+        case "OnUpdateAnalyticsData":
+            console.log("OnUpdateAnalyticsData");
+            break;
+        case "OnBeginPlay_Multiplayer_Map":
+            setHUDIsEnabled(true);
+            break;
+    }
+
+    // recieving the data example
+    let dataParsed = JSON.parse(data);
+    if (dataParsed.hasOwnProperty("PanelID")) {
+        downloadFileFromCloud(dataParsed.PanelID);
+    }
+
+    //Unreal sends { "Exit", true }
+    if (dataParsed.hasOwnProperty("Exit")) {
+        initExitModal();
+    }
+
+    PixelStreamingAgoraIOEvent(data);
+}
+
+function PixelStreamingAgoraIOEvent(data) {
+
+    console.warn("PixelStreamingAgoraIOEvent received!");
+    console.warn(data);
+
+    try {
+        let jd = JSON.parse(data);
+
+        let payloadType = jd.payloadType
+        let payload = jd.payload || {}
+        let channel_name = payload.Channel_ID;
+        let user_name = payload.Uid;
+        switch (payloadType) {
+            case "ReqVoiceSDKInfo":
+                {
+                    emitUIInteraction({
+                        payloadType: "RespVoiceSDKInfo",
+                        payload: {
+                            "currentVoiceSDK": "Agore.IO Web SDK"
+                        }
+                    })
+                    break;
+                }
+            case "JoinChannel":
+                {
+                    instAgoraIOManagerInGame.joinChannel(user_name, channel_name).then(() => {
+                        emitUIInteraction({
+                            payloadType: "OnUserJoined",
+                            payload: {
+                                "Channel_ID": channel_name,
+                                "Uid": user_name,
+                            }
+                        })
+                    });
+
+                    break;
+                }
+
+            case "LeaveChannel":
+                {
+                    instAgoraIOManagerInGame.leaveChannel(user_name, channel_name).then(() => {
+                        emitUIInteraction({
+                            payloadType: "OnUserOffline",
+                            payload: {
+                                "Channel_ID": channel_name,
+                                "Uid": user_name,
+                            }
+                        })
+                    })
+                    break;
+                }
+
+            case "UserTalking":
+                {
+                    let IsPressedRecordKey = payload.IsPressedRecordKey
+                    instAgoraIOManagerInGame.UserTalking(user_name, channel_name, IsPressedRecordKey)
+                    break;
+                }
+
+
+            case "GetDeviceInfo":
+                {
+                    instAgoraIOManagerInGame.GetVoiceDeviceInfo().then(() => {
+
+                    });
+                    break;
+                }
+
+            case "SetOutputDevice":
+                {
+                    instAgoraIOManagerInGame.SetOutputDevice(payload).then(() => {
+                        instAgoraIOManagerInGame.GetVoiceDeviceInfo().then(() => {
+
+                        });
+                    });
+                    break;
+                }
+
+            case "SetInputDevice":
+                {
+                    let Name = payload.Name;
+                    let ID = payload.ID;
+                    instAgoraIOManagerInGame.SetInputDevice(payload).then(() => {
+                        instAgoraIOManagerInGame.GetVoiceDeviceInfo().then(() => {
+
+                        });
+                    });
+                    break;
+                }
+            case "ClipboardWebUpdateCheck":
+                {
+                    window.clearInterval(Handle_Clipboard_text_Checker);
+
+                    let func = async () => {
+                        try {
+                            let text = await navigator.clipboard.readText()
+
+                            if (last_Clipboard_text != text) {
+                                emitUIInteraction({
+                                    payloadType: "ClipboardWeb2PC",
+                                    payload: {
+                                        text: text
+                                    }
+                                })
+                                last_Clipboard_text = text;
+                            }
+
+                        } catch (err) {
+                            //console.error('Failed to read clipboard contents: ', err);
+                        }
+                    }
+
+                    Handle_Clipboard_text_Checker = setInterval(func, 1000)
+
+                    break;
+                }
+            case "ClipboardPC2Web":
+                {
+                    let text = payload.text
+                    try {
+                        navigator.clipboard.writeText(text)
+                    } catch (err) {
+                        //console.error('Failed to write clipboard contents: ', err);
+                    }
+                    break;
+                }
+
+            default:
+                break;
+        }
+
+    } catch (error) {
+        console.warn(error);
+    }
+}
+
 function onResponse(data) {
     let response = new TextDecoder("utf-16").decode(data.slice(1));
     for (let listener of responseEventListeners.values()) {
@@ -2673,6 +2837,9 @@ function clearMouseEvents(playerElement) {
     playerElement.onmousemove = null;
     playerElement.oncontextmenu = null;
 }
+
+
+addResponseEventListener("handle_responses", UE4ResponseFunction);
 
 function toggleControlScheme() {
     let schemeToggle = document.getElementById("control-scheme-text");
